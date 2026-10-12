@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ultimate Bass Visualizer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom scrollbar for modern look */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { bacakground: #111; }
+        ::-webkit-scrollbar-thumb { background: #8a2be2; border-radius: 4px; }
+        
+        /* Pulse animation for buttons */
+        .neon-btn:hover {
+            box-shadow: 0 0 15px rgba(138, 43, 226, 0.7), 0 0 30px rgba(74, 0, 224, 0.5);
+            transform: translateY(-2px);
+        }
+    </style>
+</head>
+<body class="bg-black text-white h-screen w-screen overflow-hidden font-sans m-0 relative">
+
+    <!-- Background Image Container -->
+    <div id="bg-container" class="absolute inset-0 bg-cover bg-center bg-no-repeat transition-all duration-700" 
+         style="background-image: url('https://placehold.co/1920x1080/1a1a2e/ffffff?text=Incarca+Imagine+Background');">
+    </div>
+
+    <!-- Dimming Overlay so neon bars pop out -->
+    <div class="absolute inset-0 bg-black/65 z-0"></div>
+
+    <!-- The Canvas for Visualizer -->
+    <canvas id="visualizer" class="absolute inset-0 z-10 w-full h-full pointer-events-none"></canvas>
+
+    <!-- Floating Controls Panel -->
+    <div class="absolute top-6 left-1/2 -translate-x-1/2 z-20 flex flex-col sm:flex-row items-center gap-4 bg-white/10 backdrop-blur-xl border border-white/20 p-4 rounded-2xl shadow-2xl transition-all">
+        
+        <!-- Upload Audio Button -->
+        <label class="neon-btn relative overflow-hidden bg-gradient-to-r from-purple-600 to-blue-600 px-5 py-2.5 rounded-xl font-bold cursor-pointer transition-all duration-300 flex items-center gap-2 text-sm sm:text-base">
+            <span>🎵 Încarcă Piesa</span>
+            <input type="file" id="audioUpload" accept="audio/*" class="hidden">
+        </label>
+
+        <!-- Upload Image Button -->
+        <label class="neon-btn relative overflow-hidden bg-gradient-to-r from-gray-700 to-gray-900 border border-gray-600 px-5 py-2.5 rounded-xl font-bold cursor-pointer transition-all duration-300 flex items-center gap-2 text-sm sm:text-base">
+            <span>🖼️ Schimbă Fundalul</span>
+            <input type="file" id="imageUpload" accept="image/*" class="hidden">
+        </label>
+
+        <!-- Audio Player -->
+        <audio id="audio" controls class="h-10 outline-none rounded-full opacity-90 hover:opacity-100 transition-opacity w-full sm:w-auto"></audio>
+    </div>
+
+    <script>
+        // DOM Elements
+        const audioUpload = document.getElementById('audioUpload');
+        const imageUpload = document.getElementById('imageUpload');
+        const audio = document.getElementById('audio');
+        const bgContainer = document.getElementById('bg-container');
+        const canvas = document.getElementById('visualizer');
+        const ctx = canvas.getContext('2d');
+
+        // Setup Canvas Size
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        // Audio Variables
+        let audioCtx;
+        let analyser;
+        let source;
+        let dataArray;
+        let bufferLength;
+        let isInitialized = false;
+
+        // Handle Background Image Upload
+        imageUpload.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(event) {
+                    bgContainer.style.backgroundImage = `url('${event.target.result}')`;
+                }
+                reader.readAsDataURL(file);
+            }
+        });
+
+        // Handle Audio Upload
+        audioUpload.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const audioUrl = URL.createObjectURL(file);
+            audio.src = audioUrl;
+            audio.play();
+
+            initWebAudio();
+        });
+
+        function initWebAudio() {
+            if (isInitialized) return;
+
+            // Initialize AudioContext
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            analyser = audioCtx.createAnalyser();
+            
+            // Connect nodes
+            source = audioCtx.createMediaElementSource(audio);
+            source.connect(analyser);
+            analyser.connect(audioCtx.destination);
+            
+            // FFT Size: 256 gives 128 frequency bins (good for visual bars)
+            analyser.fftSize = 256;
+            bufferLength = analyser.frequencyBinCount;
+            dataArray = new Uint8Array(bufferLength);
+            
+            isInitialized = true;
+            
+            // Start the visualizer loop
+            drawVisualizer();
+        }
+
+        // Main Visualizer Drawing Loop
+        function drawVisualizer() {
+            requestAnimationFrame(drawVisualizer);
+
+            // Fetch frequency data
+            analyser.getByteFrequencyData(dataArray);
+
+            // Clear canvas entirely so the background image shows clearly
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            const barWidth = (canvas.width / bufferLength) * 2;
+            let barHeight;
+            let x = 0;
+
+            for (let i = 0; i < bufferLength; i++) {
+                // *** BASS BOOST LOGIC ***
+                // The first 10-15 bins represent the lowest frequencies (sub-bass and kick drum)
+                if (i < 12) {
+                    // Massive boost for bass
+                    barHeight = dataArray[i] * 3.5; 
+                } else if (i < 30) {
+                    // Medium boost for mid-lows
+                    barHeight = dataArray[i] * 2.0;
+                } else {
+                    // Normal height for highs
+                    barHeight = dataArray[i] * 1.2;
+                }
+
+                // Make sure bars don't exceed screen height massively
+                if (barHeight > canvas.height * 0.9) {
+                    barHeight = canvas.height * 0.9; 
+                }
+
+                // Neon Colors (Purple to Electric Blue)
+                const r = Math.min(255, barHeight + (25 * (i / bufferLength)));
+                const g = 40 + (i * 2); 
+                const b = 250;
+
+                // Add Neon Glow Effect
+                ctx.shadowBlur = 20;
+                ctx.shadowColor = `rgb(${r}, ${g}, ${b})`;
+                ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+
+                // Draw the bar from the bottom up
+                // We add a slight radius by drawing a rounded rect manually or just standard rect
+                ctx.beginPath();
+                ctx.roundRect(x, canvas.height - barHeight, barWidth - 2, barHeight, [5, 5, 0, 0]);
+                ctx.fill();
+
+                // Move X position for the next bar
+                x += barWidth;
+            }
+        }
+    </script>
+</body>
+</html>
